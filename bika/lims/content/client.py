@@ -18,6 +18,8 @@
 # Copyright 2018-2021 by it's authors.
 # Some rights reserved, see README and LICENSE.
 
+import six
+
 from AccessControl import ClassSecurityInfo
 from AccessControl import Unauthorized
 from Products.ATContentTypes.content import schemata
@@ -32,6 +34,7 @@ from Products.Archetypes.public import registerType
 from Products.CMFCore import permissions
 from Products.CMFCore.PortalFolder import PortalFolderBase as PortalFolder
 from Products.CMFCore.utils import _checkPermission
+from Products.CMFPlone.RegistrationTool import get_member_by_login_name
 from zope.interface import implements
 
 from bika.lims import _
@@ -166,23 +169,146 @@ class Client(Organisation):
     implements(IClient, IDeactivable)
 
     security = ClassSecurityInfo()
-    displayContentsTab = False
     schema = schema
-    _at_rename_after_creation = True
+    GROUP_KEY = "_client_group_id"
 
     def _renameAfterCreation(self, check_auto_id=False):
         from bika.lims.idserver import renameAfterCreation
         renameAfterCreation(self)
 
-    security.declarePublic("getContactFromUsername")
+    @property
+    def group_id(self):
+        """Client group ID
+        """
+        if not hasattr(self, self.GROUP_KEY):
+            setattr(self, self.GROUP_KEY, self._get_group_id())
+        return getattr(self, self.GROUP_KEY)
 
+    def _get_group_id(self):
+        """Get a valid group ID
+        """
+        # Try first the client ID
+        client_id = self.getClientID()
+        if self.is_valid_group_id(client_id):
+            return client_id
+
+        # Use the context ID
+        context_id = self.getId()
+        if self.is_valid_group_id(context_id):
+            return context_id
+
+        # Use the ID + prefix
+        prefix_id = "group_%s" % client_id or context_id
+        count = 0
+        while not self.is_valid_group_id(prefix_id):
+            count += 1
+            prefix_id = "group_%s_%s" % (count, client_id or context_id)
+
+        return prefix_id
+
+    def is_valid_group_id(self, group_id):
+        """Check if the group ID is valid
+        :param group_id: The group ID to validate
+        """
+        # Check for string
+        if not isinstance(group_id, six.string_types):
+            return False
+
+        # Check for empty string
+        if not len(group_id) > 0:
+            return False
+
+        portal = api.get_portal()
+        # Check if the ID is already used by a user login
+        if get_member_by_login_name(portal, group_id, False):
+            return False
+
+        return True
+
+    @security.public
+    def get_group(self):
+        """Returns our client group
+
+        :returns: Client group object
+        """
+        portal_groups = api.get_tool("portal_groups")
+        return portal_groups.getGroupById(self.group_id)
+
+    @security.private
+    def create_group(self):
+        """Create a new client group
+
+        :returns: Client group object
+        """
+        group = self.get_group()
+
+        # return the existing Group immediately
+        if group:
+            return group
+
+        portal_groups = api.get_tool("portal_groups")
+        group_name = self.getName()
+
+        # Create a new Client Group
+        # NOTE: The global "Client" role is necessary for the client contacts
+        portal_groups.addGroup(self.group_id,
+                               roles=["Client"],
+                               title=group_name)
+
+        # Grant the group the "Owner" role on ourself
+        # NOTE: This will grant each member of this group later immediate
+        #       access to all exisiting objects with the same role.
+        self.manage_setLocalRoles(self.group_id, ["Owner"])
+
+        return self.get_group()
+
+    @security.private
+    def remove_group(self):
+        """Remove the own client group
+
+        :returns: True if the group was removed, otherwise False
+        """
+        group = self.get_group()
+        if not group:
+            return False
+        portal_groups = api.get_tool("portal_groups")
+        # Use the client ID for the group ID
+        portal_groups.removeGroup(self.group_id)
+        # also remove the group attribute
+        delattr(self, self.GROUP_KEY)
+        return True
+
+    @security.private
+    def add_user_to_group(self, user):
+        """Add a user to the client group
+
+        :param user: user/group object or user/group ID
+        :returns: list of new group IDs
+        """
+        group = self.get_group()
+        if not group:
+            group = self.create_group()
+        return api.user.add_group(group, user)
+
+    @security.private
+    def del_user_from_group(self, user):
+        """Add a user to the client group
+
+        :param user: user/group object or user/group ID
+        :returns: list of new group IDs
+        """
+        group = self.get_group()
+        if not group:
+            group = self.create_group()
+        return api.user.del_group(group, user)
+
+    @security.public
     def getContactFromUsername(self, username):
         for contact in self.objectValues("Contact"):
             if contact.getUsername() == username:
                 return contact.UID()
 
-    security.declarePublic("getContactUIDForUser")
-
+    @security.public
     def getContactUIDForUser(self):
         """Get the UID of the user associated with the authenticated user
         """
@@ -196,14 +322,21 @@ class Client(Organisation):
         if len(r) == 1:
             return r[0].UID
 
-    def getContacts(self, only_active=True):
+    @security.public
+    def getContacts(self, active=True):
         """Return an array containing the contacts from this Client
         """
-        contacts = self.objectValues("Contact")
-        if only_active:
-            contacts = filter(api.is_active, contacts)
-        return contacts
+        path = api.get_path(self)
+        query = {
+            "portal_type": "Contact",
+            "path": {"query": path},
+            "is_active": active,
+        }
+        brains = api.search(query)
+        contacts = map(api.get_object, brains)
+        return list(contacts)
 
+    @security.public
     def getDecimalMark(self):
         """Return the decimal mark to be used on reports for this client
 
@@ -216,6 +349,7 @@ class Client(Organisation):
             return self.Schema()["DecimalMark"].get(self)
         return self.bika_setup.getDecimalMark()
 
+    @security.public
     def getCountry(self, default=None):
         """Return the Country from the Physical or Postal Address
         """
@@ -223,6 +357,7 @@ class Client(Organisation):
         postal_address = self.getPostalAddress().get("country", default)
         return physical_address or postal_address
 
+    @security.public
     def getProvince(self, default=None):
         """Return the Province from the Physical or Postal Address
         """
@@ -230,6 +365,7 @@ class Client(Organisation):
         postal_address = self.getPostalAddress().get("state", default)
         return physical_address or postal_address
 
+    @security.public
     def getDistrict(self, default=None):
         """Return the Province from the Physical or Postal Address
         """

@@ -213,4 +213,6 @@
       handler="bika.lims.upgrade.v01_03_006.upgrade"
       profile="bika.lims:default"/>
 
+  <include file="v01_03_006.zcml" />
+
 </configure>

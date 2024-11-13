@@ -82,7 +82,7 @@
       for="*"
       name="partition_magic"
       class=".partition_magic.PartitionMagicView"
-      permission="senaite.core.permissions.AddAnalysisRequest"
+      permission="zope2.View"
       layer="bika.lims.interfaces.IBikaLIMS"
   />
 

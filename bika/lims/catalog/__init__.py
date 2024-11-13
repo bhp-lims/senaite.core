@@ -18,6 +18,8 @@
 # Copyright 2018-2021 by it's authors.
 # Some rights reserved, see README and LICENSE.
 
+CLIENT_CATALOG = "portal_catalog"
+
 from .auditlog_catalog import CATALOG_AUDITLOG  # noqa
 from .analysisrequest_catalog import CATALOG_ANALYSIS_REQUEST_LISTING  # noqa
 from .analysis_catalog import CATALOG_ANALYSIS_LISTING  # noqa

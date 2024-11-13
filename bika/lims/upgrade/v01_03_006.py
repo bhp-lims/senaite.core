@@ -19,15 +19,17 @@
 # Some rights reserved, see README and LICENSE.
 
 import transaction
+from Acquisition import aq_base
+from Products.Archetypes.config import REFERENCE_CATALOG
 
 from bika.lims import api
 from bika.lims import logger
+from bika.lims.catalog import CLIENT_CATALOG
 from bika.lims.catalog import CATALOG_ANALYSIS_REQUEST_LISTING
 from bika.lims.catalog.analysis_catalog import CATALOG_ANALYSIS_LISTING
 from bika.lims.config import PROJECTNAME as product
 from bika.lims.upgrade import upgradestep
 from bika.lims.upgrade.utils import UpgradeUtils
-from Products.Archetypes.config import REFERENCE_CATALOG
 
 version = "1.3.6"  # Remember version number in metadata.xml and setup.py
 profile = "profile-{0}:default".format(product)
@@ -174,3 +176,77 @@ def is_orphan(uid):
     """
     obj = api.get_object_by_uid(uid, None)
     return obj is None
+
+
+def create_client_groups(tool):
+    """Create for all Clients an explicit Group
+    """
+    logger.info("Create client groups ...")
+    portal_groups = api.get_tool("portal_groups")
+    clients_group = portal_groups.getGroupById("Clients")
+    clients = api.search({"portal_type": "Client"}, CLIENT_CATALOG)
+    total = len(clients)
+    for num, client in enumerate(clients):
+        obj = api.get_object(client)
+        logger.info("Processing client %s/%s: %s"
+                    % (num+1, total, obj.getName()))
+
+        # recreate the group
+        obj.remove_group()
+
+        group = obj.create_group()
+        # add all linked client contacts to the group
+        for contact in obj.getContacts():
+            user = contact.getUser()
+            if not user:
+                continue
+            logger.info("Adding user '%s' to the client group '%s'"
+                        % (user.getId(), group.getId()))
+            obj.add_user_to_group(user)
+
+            # delete the user from Clients "generic" group
+            if clients_group:
+                api.user.del_group(clients_group, user)
+
+    logger.info("Create client groups [DONE]")
+
+
+def reindex_client_security(tool):
+    """Reindex client object security to grant the owner role for the client
+       group to all contents
+    """
+    logger.info("Reindex client security ...")
+
+    clients = api.search({"portal_type": "Client"}, CLIENT_CATALOG)
+    total = len(clients)
+    for num, client in enumerate(clients):
+        obj = api.get_object(client)
+        logger.info("Processing client %s/%s: %s"
+                    % (num+1, total, obj.getName()))
+
+        if not obj.get_group():
+            logger.info("No client group exists for client %s. "
+                        "Skipping reindexing ..." % obj.getName())
+            continue
+
+        _recursive_reindex_object_security(obj)
+
+        logger.info("Committing client %s/%s" % (num+1, total))
+        transaction.commit()
+        logger.info("Commit done")
+
+        # Flush the object from memory
+        obj._p_deactivate()
+
+    logger.info("Reindex client security [DONE]")
+
+
+def _recursive_reindex_object_security(obj):
+    """Recursively reindex object security for the given object
+    """
+    if hasattr(aq_base(obj), "objectValues"):
+        for child_obj in obj.objectValues():
+            _recursive_reindex_object_security(child_obj)
+
+    obj.reindexObject(idxs=["allowedRolesAndUsers"])
+    obj._p_deactivate()

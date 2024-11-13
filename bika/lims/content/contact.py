@@ -21,7 +21,6 @@
 import types
 
 from AccessControl import ClassSecurityInfo
-from Acquisition import aq_base
 from Acquisition import aq_inner
 from Acquisition import aq_parent
 from bika.lims import bikaMessageFactory as _
@@ -38,8 +37,6 @@ from Products.Archetypes.utils import DisplayList
 from Products.CMFCore.permissions import ModifyPortalContent
 from Products.CMFPlone.utils import safe_unicode
 from zope.interface import implements
-
-ACTIVE_STATES = ["active"]
 
 
 schema = Person.schema.copy() + atapi.Schema((
@@ -244,10 +241,8 @@ class Contact(Person):
         # N.B. Local owner role and client group applies only to client
         #      contacts, but not lab contacts.
         if IClient.providedBy(self.aq_parent):
-            # Grant local Owner role
-            self._addLocalOwnerRole(username)
-            # Add user to "Clients" group
-            self._addUserToGroup(username, group="Clients")
+            # add user to clients group
+            self.aq_parent.add_user_to_group(username)
 
         return True
 
@@ -282,58 +277,10 @@ class Contact(Person):
         # N.B. Local owner role and client group applies only to client
         #      contacts, but not lab contacts.
         if IClient.providedBy(self.aq_parent):
-            # Revoke local Owner role
-            self._delLocalOwnerRole(username)
-            # Remove user from "Clients" group
-            self._delUserFromGroup(username, group="Clients")
+            # remove user from clients group
+            self.aq_parent.del_user_from_group(username)
 
         return True
-
-    @security.private
-    def _addUserToGroup(self, username, group="Clients"):
-        """Add user to the goup
-        """
-        portal_groups = api.portal.get_tool("portal_groups")
-        group = portal_groups.getGroupById(group)
-        group.addMember(username)
-
-    @security.private
-    def _delUserFromGroup(self, username, group="Clients"):
-        """Remove user from the group
-        """
-        portal_groups = api.portal.get_tool("portal_groups")
-        group = portal_groups.getGroupById(group)
-        group.removeMember(username)
-
-    @security.private
-    def _addLocalOwnerRole(self, username):
-        """Add local owner role from parent object
-        """
-        parent = self.getParent()
-        if parent.portal_type == "Client":
-            parent.manage_setLocalRoles(username, ["Owner", ])
-            # reindex object security
-            self._recursive_reindex_object_security(parent)
-
-    @security.private
-    def _delLocalOwnerRole(self, username):
-        """Remove local owner role from parent object
-        """
-        parent = self.getParent()
-        if parent.portal_type == "Client":
-            parent.manage_delLocalRoles([username])
-            # reindex object security
-            self._recursive_reindex_object_security(parent)
-
-    def _recursive_reindex_object_security(self, obj):
-        """Reindex object security after user linking
-        """
-        if hasattr(aq_base(obj), "objectValues"):
-            for child_obj in obj.objectValues():
-                self._recursive_reindex_object_security(child_obj)
-
-        logger.debug("Reindexing object security for {}".format(repr(obj)))
-        obj.reindexObjectSecurity()
 
 
 atapi.registerType(Contact, PROJECTNAME)

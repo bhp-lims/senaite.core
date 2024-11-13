@@ -39,10 +39,6 @@ GROUPS = [
         "title": "Analysts",
         "roles": ["Analyst"],
     }, {
-        "id": "Clients",
-        "title": "Clients",
-        "roles": ["Client"],
-    }, {
         "id": "LabClerks",
         "title": "Lab Clerks",
         "roles": ["LabClerk"],

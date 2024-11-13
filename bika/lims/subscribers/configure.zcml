@@ -123,4 +123,11 @@
          zope.lifecycleevent.interfaces.IObjectModifiedEvent"
     handler="bika.lims.subscribers.batch.ObjectModifiedEventHandler" />
 
+  <!-- Client *created* event handler -->
+  <subscriber
+      for="bika.lims.interfaces.IClient
+           Products.Archetypes.interfaces.IObjectInitializedEvent"
+      handler=".client.on_client_created"
+  />
+
 </configure>

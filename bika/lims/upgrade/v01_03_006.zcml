@@ -1,0 +1,21 @@
+<configure
+    xmlns="http://namespaces.zope.org/zope"
+    xmlns:genericsetup="http://namespaces.zope.org/genericsetup">
+
+  <genericsetup:upgradeStep
+      title="Reindex client object security"
+      description="Reindex object security for all clients including their contents"
+      source="1361"
+      destination="1362"
+      handler=".v01_03_006.reindex_client_security"
+      profile="bika.lims:default"/>
+
+  <genericsetup:upgradeStep
+      title="Create groups for clients"
+      description="Create a group for each client"
+      source="1.3.6"
+      destination="1361"
+      handler=".v01_03_006.create_client_groups"
+      profile="bika.lims:default"/>
+
+</configure>
