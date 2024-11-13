@@ -229,13 +229,28 @@ def reindex_client_security(tool):
                         "Skipping reindexing ..." % obj.getName())
             continue
 
-        _recursive_reindex_object_security(obj)
+        allowed = client.allowedRolesAndUsers
+        user_id = "user:%s" % obj.group_id
+        if user_id in allowed:
+            logger.info("[SKIP] Reindexed already: %s ..." % obj.getName())
+            continue
 
-        logger.info("Committing client %s/%s" % (num+1, total))
+        child_ids = obj.objectIds()
+        child_total = len(child_ids)
+        for child_num, child_id in enumerate(child_ids):
+            if child_num and child_num % 100 == 0:
+                logger.info(" Processed: {}/{}".format(child_num, child_total))
+                transaction.commit()
+
+            child_obj = obj._getOb(child_id)
+            if not api.is_object(child_obj):
+                continue
+
+            _recursive_reindex_object_security(child_obj)
+
+        obj.reindexObject(idxs=["allowedRolesAndUsers"])
         transaction.commit()
-        logger.info("Commit done")
 
-        # Flush the object from memory
         obj._p_deactivate()
 
     logger.info("Reindex client security [DONE]")
